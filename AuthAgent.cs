@@ -24,16 +24,12 @@ using System.Threading.Tasks;
 namespace AutoSignIn;
 public class AuthAgent : AgentApplication
 {
-    private readonly string _workflowName;
-    private readonly string _agentUrl;        // full workflow URL
-    private readonly string _serviceBaseUrl;  // base without workflow segment
+    private readonly string _agentUrl;
 
     public AuthAgent(AgentApplicationOptions options, IOptions<WorkflowOptions> workflowOptions) : base(options)
     {
         var wf = workflowOptions.Value;
         _agentUrl = wf.AgentUrl.TrimEnd('/');
-        _workflowName = wf.WorkflowName;
-        _serviceBaseUrl = wf.ServiceBaseUrl;
 
         OnConversationUpdate(ConversationUpdateEvents.MembersAdded, WelcomeMessageAsync);
 
@@ -44,7 +40,6 @@ public class AuthAgent : AgentApplication
             await turnContext.SendActivityAsync("You have signed out", cancellationToken: cancellationToken);
         }, rank: RouteRank.Last);
 
-        // General message handler
         OnActivity(ActivityTypes.Message, OnMessageAsync, rank: RouteRank.Last);
 
         UserAuthorization.OnUserSignInFailure(OnUserSignInFailure);
@@ -81,80 +76,15 @@ public class AuthAgent : AgentApplication
         {
             InnerHandler = new HttpClientHandler()
         });
+
         httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        httpClient.DefaultRequestHeaders.Add("x-ms-obo-usertoken", "Bearer " + token);
-
-        /*
-        // Agent card (workflow scoped) - retained (body not currently used)
-        using HttpRequestMessage agentCardReq = new(HttpMethod.Get, $"{_agentUrl}/.well-known/agent-card.json");
-        HttpResponseMessage agentCardResp = await httpClient.SendAsync(agentCardReq, cancellationToken);
-        _ = await agentCardResp.Content.ReadAsStringAsync(cancellationToken);
-        */
-
-        // RPC client works at service base (without workflow name)
-        var rpc = new AgentContextRpcClient(httpClient, _serviceBaseUrl);
-
-        // IMPORTANT: keep lookup limited to UNARCHIVED contexts (includeArchived = false)
-        var contexts = await rpc.ListContextsAsync(
-            _workflowName,
-            new { limit = 1000, includeArchived = false, includeLastTask = false },
-            cancellationToken);
-
-        var conversationId = turnContext.Activity.Conversation.Id;
-
-        // Gather contexts for this conversation
-        var allForConversation = contexts.Contexts
-            .EnumerateArray()
-            .Where(e => e.TryGetProperty("name", out var nameProp) &&
-                        nameProp.GetString() == conversationId)
-            .ToList();
-
-        var terminalStatuses = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "Cancelled", "Failed", "Terminated", "Aborted", "TimedOut"
-        };
-
-        // First available non-terminal context (treat missing status as non-terminal)
-        var activeContext = allForConversation.FirstOrDefault(e =>
-            !e.TryGetProperty("status", out var statusProp) ||
-            !terminalStatuses.Contains(statusProp.GetString() ?? string.Empty));
-
-        string? contextId;
-        if (activeContext.ValueKind != JsonValueKind.Undefined)
-        {
-            // Use the non-terminal context
-            contextId = activeContext.GetProperty("id").GetString();
-        }
-        else if (allForConversation.Count > 0)
-        {
-            // There are contexts for this conversation but all are terminal -> reset and create a new one
-            await turnContext.SendActivityAsync(
-                "Resetting context as prior conversation reached terminal state. New chat beginning...",
-                cancellationToken: cancellationToken);
-
-            var updated = await rpc.CreateAndNameContextAsync(
-                _workflowName,
-                conversationId,
-                createArgs: null,
-                isArchived: null,
-                cancellationToken);
-            contextId = updated.Id;
-
-            await turnContext.SendActivityAsync("Please send a new message.", cancellationToken: cancellationToken);
-
-            return;
-        }
-        else
-        {
-            // No contexts exist for this conversation -> create without extra message
-            var updated = await rpc.CreateAndNameContextAsync(
-                _workflowName,
-                conversationId,
-                createArgs: null,
-                isArchived: null,
-                cancellationToken);
-            contextId = updated.Id;
-        }
+        
+        // The agent uses ContextId to manage conversation state. ContextId is generated server-side
+        // per A2A protocol. You can either catch those client-side after first-message & pass back in
+        // explicitly, or you can leverage this experimental flag below. This flag will map the message
+        // to the latest run with the same client tracking ID.
+        httpClient.DefaultRequestHeaders.Add("x-ms-enable-client-tracking-id-to-context", "enabled");
+        httpClient.DefaultRequestHeaders.Add("x-ms-client-tracking-id", turnContext.Activity.Conversation.Id);
 
         try
         {
@@ -167,7 +97,6 @@ public class AuthAgent : AgentApplication
                     Role = MessageRole.User,
                     Parts = [new TextPart { Text = turnContext.Activity.Text }],
                     MessageId = Guid.NewGuid().ToString(),
-                    ContextId = contextId
                 };
 
                 initialTask = (AgentTask)await a2aClient.SendMessageAsync(new MessageSendParams
