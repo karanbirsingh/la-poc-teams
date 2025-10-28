@@ -7,6 +7,8 @@ This prototype was built on https://github.com/microsoft/Agents/tree/main/sample
 Create a standard LA with an agent loop. Use the default easy auth settings that create an app registration on your behalf. You can change the identity (e.g. allow any identity) as needed.
 When the AAD app is created, ensure you add "https://token.botframework.com/.auth/web/redirect" to Web Redirect URIs.
 
+Ensure EnableA2AClientTrackingIdToContextId is enabled in host.json or by default (depending on deployment timeline)
+
 ## Azure Bot Service
 Create an Azure Bot resource in the portal. Allow it to create its AAD app for you. This app represents the bot identity. Note down BOT_CLIENT_ID, BOT_TENANT_ID, and create a BOT_SECRET for later.
 
