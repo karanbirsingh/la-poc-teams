@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Azure Bot Service Configuration for Okta OAuth",
+  
+  "bot": {
+    "name": "teams-okta-oauth-bot",
+    "resourceGroup": "karansin",
+    "subscriptionId": "3019d4d5-a172-4635-877f-9ad4001cfa85",
+    "location": "global",
+    "sku": "F0",
+    "kind": "azurebot",
+    "msaAppType": "SingleTenant",
+    "msaAppId": "387dc956-c1c1-4a04-92ae-bb8d8dbfe203",
+    "msaAppTenantId": "31fc0ca3-d72a-456e-bd13-e20aeb14a3af",
+    "msaAppSecret": "REDACTED_AAD_SECRET",
+    "endpoint": "https://wt0zp276-3978.usw2.devtunnels.ms/api/messages",
+    "channels": [
+      "webchat",
+      "directline", 
+      "msteams"
+    ]
+  },
+  
+  "oauthConnection": {
+    "name": "okta",
+    "serviceProvider": {
+      "id": "8379c6d2-b262-4d4f-b89b-68dc5b5f5482",
+      "displayName": "Oauth 2 Generic Provider"
+    },
+    "clientId": "0oazoxkr5qr5bSJFs697",
+    "clientSecret": "REDACTED_OKTA_SECRET",
+    "scopes": "openid profile email",
+    "parameters": {
+      "authorizationUrl": "https://integrator-7620286.okta.com/oauth2/default/v1/authorize",
+      "tokenUrl": "https://integrator-7620286.okta.com/oauth2/default/v1/token",
+      "refreshUrl": "https://integrator-7620286.okta.com/oauth2/default/v1/token"
+    }
+  },
+  
+  "notes": {
+    "genericOAuth2Provider": "Used because Azure Bot Service doesn't have a native Okta provider. Service Provider ID 8379c6d2-b262-4d4f-b89b-68dc5b5f5482 is the Generic OAuth 2 provider.",
+    "singleTenant": "Bot is configured as SingleTenant - only users from the specified tenant can use it.",
+    "endpoint": "Update this to your devtunnel URL or deployed app URL.",
+    "secrets": "Store securely - shown for reference only."
+  }
+}

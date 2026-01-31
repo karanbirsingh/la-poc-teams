@@ -1,0 +1,25 @@
+{
+  "_comment": "Fill in ONLY the required fields. Everything else is auto-generated or has sensible defaults.",
+
+  "okta": {
+    "_comment": "Get API token from: Okta Admin > Security > API > Tokens > Create Token",
+    "domain": "integrator-7620286.okta.com",
+    "apiToken": "00utl2YSG9J1ODx70G3R1giojV8I0HeVVZyN71bzqX"
+  },
+
+  "azure": {
+    "_comment": "subscriptionId optional (uses current az login). resourceGroup is REQUIRED.",
+    "subscriptionId": "",
+    "resourceGroup": "karansin",
+    "location": "centralus"
+  },
+
+  "resources": {
+    "_comment": "Optional. Names for resources within the RG. Leave empty for auto-generated names.",
+    "prefix": "",
+    "botName": "",
+    "logicAppName": "",
+    "storageName": "",
+    "appServicePlanName": ""
+  }
+}

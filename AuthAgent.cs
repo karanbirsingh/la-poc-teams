@@ -8,7 +8,6 @@ using Microsoft.Agents.Builder.App;
 using Microsoft.Agents.Builder.App.UserAuth;
 using Microsoft.Agents.Builder.State;
 using Microsoft.Agents.Builder.UserAuth;
-using Microsoft.Agents.Core;
 using Microsoft.Agents.Core.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -24,24 +23,41 @@ using System.Threading;
 using System.Threading.Tasks;
 
 namespace AutoSignIn;
+
+/// <summary>
+/// Bot agent that:
+/// 1. Authenticates users via Okta OAuth (through Azure Bot Service Generic OAuth 2 Provider)
+/// 2. Passes the Okta access token to Logic Apps via x-ms-obo-usertoken header
+/// 3. Logic Apps validates the token via Easy Auth (configured for Okta as custom OIDC provider)
+/// </summary>
 public class AuthAgent : AgentApplication
 {
+    private readonly ILogger<AuthAgent> _logger;
+    private readonly ILoggerFactory _loggerFactory;
     private readonly string _workflowName;
     private readonly string _agentUrl;        // full workflow URL
     private readonly string _serviceBaseUrl;  // base without workflow segment
-    private readonly ILogger<AuthAgent> _logger;
 
-    public AuthAgent(AgentApplicationOptions options, IOptions<WorkflowOptions> workflowOptions, ILogger<AuthAgent> logger) : base(options)
+    // Okta userinfo endpoint - must match the authorization server used in Azure Bot OAuth connection
+    private const string OktaUserInfoUrl = "https://integrator-7620286.okta.com/oauth2/default/v1/userinfo";
+
+    public AuthAgent(
+        AgentApplicationOptions options,
+        ILogger<AuthAgent> logger,
+        ILoggerFactory loggerFactory,
+        IOptions<WorkflowOptions> workflowOptions) : base(options)
     {
         _logger = logger;
+        _loggerFactory = loggerFactory;
         var wf = workflowOptions.Value;
-        _agentUrl = wf.AgentUrl.TrimEnd('/');
+        _agentUrl = wf.AgentUrl?.TrimEnd('/') ?? string.Empty;
         _workflowName = wf.WorkflowName;
         _serviceBaseUrl = wf.ServiceBaseUrl;
 
-        _logger.LogInformation("[DIAG] AuthAgent initialized. AutoSignIn={AutoSignIn}, DefaultHandler={Handler}",
+        _logger.LogInformation("[AuthAgent] Initialized. AutoSignIn={AutoSignIn}, DefaultHandler={Handler}, WorkflowUrl={Url}",
             options.UserAuthorization?.AutoSignIn?.ToString() ?? "(not set)",
-            options.UserAuthorization?.DefaultHandlerName ?? "(none)");
+            options.UserAuthorization?.DefaultHandlerName ?? "(none)",
+            _agentUrl);
 
         OnConversationUpdate(ConversationUpdateEvents.MembersAdded, WelcomeMessageAsync);
 
@@ -51,6 +67,9 @@ public class AuthAgent : AgentApplication
             await UserAuthorization.SignOutUserAsync(turnContext, turnState, cancellationToken: cancellationToken);
             await turnContext.SendActivityAsync("You have signed out", cancellationToken: cancellationToken);
         }, rank: RouteRank.Last);
+
+        // Handle -me command to show user info from Okta
+        OnMessage("-me", OnMeAsync, rank: RouteRank.First);
 
         // General message handler
         OnActivity(ActivityTypes.Message, OnMessageAsync, rank: RouteRank.Last);
@@ -65,113 +84,109 @@ public class AuthAgent : AgentApplication
             if (member.Id != turnContext.Activity.Recipient.Id)
             {
                 StringBuilder sb = new();
-                sb.AppendLine("Hello!");
+                sb.AppendLine("👋 **Welcome to the Okta + Logic Apps Demo Bot!**");
+                sb.AppendLine();
+                sb.AppendLine("This bot demonstrates OAuth authentication with Okta and Logic Apps integration.");
+                sb.AppendLine();
+                sb.AppendLine("**Commands:**");
+                sb.AppendLine("- **-me**: Show your Okta user info");
+                sb.AppendLine("- **-signout**: Sign out and reset the OAuth flow");
+                sb.AppendLine("- *Any other message*: Send to Logic Apps workflow");
                 await turnContext.SendActivityAsync(MessageFactory.Text(sb.ToString()), cancellationToken);
-                sb.Clear();
             }
         }
     }
 
-    private async Task OnMessageAsync(ITurnContext turnContext, ITurnState turnState, CancellationToken cancellationToken)
+    /// <summary>
+    /// Handles the -me command - fetches detailed user info from Okta userinfo endpoint.
+    /// </summary>
+    private async Task OnMeAsync(ITurnContext turnContext, ITurnState turnState, CancellationToken cancellationToken)
     {
-        // ===== DIAGNOSTIC LOGGING FOR OAUTH DEBUGGING =====
-        var activity = turnContext.Activity;
-        _logger.LogWarning("[DIAG] ========== INCOMING MESSAGE ==========");
-        _logger.LogWarning("[DIAG] ChannelId (raw): {ChannelId}", activity.ChannelId);
-        _logger.LogWarning("[DIAG] ChannelId.Channel: {Channel}", activity.ChannelId?.Channel);
-        _logger.LogWarning("[DIAG] ChannelId.SubChannel: {SubChannel}", activity.ChannelId?.SubChannel);
-        _logger.LogWarning("[DIAG] ChannelId.IsSubChannel: {IsSubChannel}", activity.ChannelId?.IsSubChannel());
-        _logger.LogWarning("[DIAG] ChannelId.IsParentChannel(msteams): {IsParent}", activity.ChannelId?.IsParentChannel("msteams"));
-        _logger.LogWarning("[DIAG] Activity.Type: {Type}", activity.Type);
-        _logger.LogWarning("[DIAG] Activity.Text: {Text}", activity.Text);
-        _logger.LogWarning("[DIAG] Activity.DeliveryMode: {DeliveryMode}", activity.DeliveryMode);
-        _logger.LogWarning("[DIAG] Conversation.Id: {ConvId}", activity.Conversation?.Id);
-        _logger.LogWarning("[DIAG] Conversation.TenantId: {TenantId}", activity.Conversation?.TenantId);
-        _logger.LogWarning("[DIAG] Conversation.ConversationType: {ConvType}", activity.Conversation?.ConversationType);
-        _logger.LogWarning("[DIAG] ServiceUrl: {ServiceUrl}", activity.ServiceUrl);
-        _logger.LogWarning("[DIAG] From.Id: {FromId}", activity.From?.Id);
-        _logger.LogWarning("[DIAG] From.AadObjectId: {AadId}", activity.From?.AadObjectId);
-        // Note: AgenticUserId/AgenticAppId only available in v1.3.x+
-        _logger.LogWarning("[DIAG] Recipient.Id: {RecipientId}", activity.Recipient?.Id);
-        
-        // Note: IsAgenticRequest() is only available in v1.3.x+
-        // For v1.2.x, we check for ProductInfo entity manually
-        
-        // Check for ProductInfo entity (used by M365 Copilot)
+        string token;
         try
         {
-            var productInfo = activity.GetProductInfoEntity();
-            _logger.LogWarning("[DIAG] ProductInfoEntity: {ProductInfo}", productInfo != null ? $"Id={productInfo.Id}, Type={productInfo.Type}" : "(none)");
-            // If ProductInfo with Id="COPILOT" exists, this is likely an M365 Copilot request
-            var isLikelyCopilot = productInfo?.Id?.Equals("COPILOT", StringComparison.OrdinalIgnoreCase) == true;
-            _logger.LogWarning("[DIAG] IsLikelyCopilotRequest (inferred): {IsLikelyCopilot}", isLikelyCopilot);
+            token = await UserAuthorization.GetTurnTokenAsync(turnContext, UserAuthorization.DefaultHandlerName);
+            if (string.IsNullOrEmpty(token))
+            {
+                await turnContext.SendActivityAsync("No token available. Please sign in first.", cancellationToken: cancellationToken);
+                return;
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning("[DIAG] ProductInfoEntity check failed: {Error}", ex.Message);
+            _logger.LogError(ex, "[AuthAgent] GetTurnTokenAsync failed");
+            await turnContext.SendActivityAsync($"Could not get token: {ex.Message}", cancellationToken: cancellationToken);
+            return;
         }
-        
-        // Check for Teams-specific channel data
-        if (activity.ChannelData != null)
+
+        var userInfo = await GetOktaUserInfoAsync(token, cancellationToken);
+        if (userInfo == null)
         {
-            try
-            {
-                var channelDataJson = System.Text.Json.JsonSerializer.Serialize(activity.ChannelData);
-                _logger.LogWarning("[DIAG] ChannelData (JSON): {ChannelData}", channelDataJson);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning("[DIAG] ChannelData serialization failed: {Error}", ex.Message);
-            }
+            await turnContext.SendActivityAsync("Failed to get user info from Okta. Token may be invalid.", cancellationToken: cancellationToken);
+            return;
         }
-        
-        // Check activity.Entities for mentions, clientInfo, etc.
-        if (activity.Entities != null && activity.Entities.Count > 0)
-        {
-            foreach (var entity in activity.Entities)
-            {
-                _logger.LogWarning("[DIAG] Entity Type: {EntityType}", entity.Type);
-                if (entity.Type == "clientInfo" || entity.Type == "ProductInfo")
-                {
-                    try
-                    {
-                        var entityJson = System.Text.Json.JsonSerializer.Serialize(entity);
-                        _logger.LogWarning("[DIAG] ClientInfo Entity: {Entity}", entityJson);
-                    }
-                    catch { }
-                }
-            }
-        }
-        _logger.LogWarning("[DIAG] ===========================================");
-        // ===== END DIAGNOSTIC LOGGING =====
+
+        var info = userInfo.Value;
+        StringBuilder sb = new();
+        sb.AppendLine("📋 **Your Okta Profile:**");
+        sb.AppendLine();
+
+        if (info.TryGetProperty("name", out var name))
+            sb.AppendLine($"**Name:** {name.GetString()}");
+        if (info.TryGetProperty("email", out var email))
+            sb.AppendLine($"**Email:** {email.GetString()}");
+        if (info.TryGetProperty("preferred_username", out var username))
+            sb.AppendLine($"**Username:** {username.GetString()}");
+        if (info.TryGetProperty("sub", out var sub))
+            sb.AppendLine($"**Subject (sub):** {sub.GetString()}");
+        if (info.TryGetProperty("email_verified", out var emailVerified))
+            sb.AppendLine($"**Email Verified:** {emailVerified.GetBoolean()}");
+
+        await turnContext.SendActivityAsync(MessageFactory.Text(sb.ToString()), cancellationToken);
+    }
+
+    private async Task OnMessageAsync(ITurnContext turnContext, ITurnState turnState, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("[AuthAgent] Message received from channel: {Channel}, Text: {Text}",
+            turnContext.Activity.ChannelId,
+            turnContext.Activity.Text);
 
         string token;
         try
         {
-            _logger.LogWarning("[DIAG] Calling UserAuthorization.GetTurnTokenAsync with handler: {Handler}", UserAuthorization.DefaultHandlerName);
+            _logger.LogInformation("[AuthAgent] Getting token for handler: {Handler}", UserAuthorization.DefaultHandlerName);
             token = await UserAuthorization.GetTurnTokenAsync(turnContext, UserAuthorization.DefaultHandlerName);
-            _logger.LogWarning("[DIAG] Token retrieved successfully (length={Length})", token?.Length ?? 0);
+            _logger.LogInformation("[AuthAgent] Token retrieved (length={Length})", token?.Length ?? 0);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[DIAG] GetTurnTokenAsync FAILED: {Message}", ex.Message);
+            _logger.LogError(ex, "[AuthAgent] GetTurnTokenAsync FAILED");
             await turnContext.SendActivityAsync($"Could not get bearer token: {ex.Message}", cancellationToken: cancellationToken);
             return;
         }
 
-        var httpClient = new HttpClient(new A2ATimestampRewriteHandler
+        // If no Logic Apps URL configured, just echo with Okta user info
+        if (string.IsNullOrEmpty(_agentUrl))
+        {
+            _logger.LogInformation("[AuthAgent] No Logic Apps URL configured, using Okta userinfo only");
+            var userInfo = await GetOktaUserInfoAsync(token!, cancellationToken);
+            var displayName = "Unknown User";
+            if (userInfo.HasValue && userInfo.Value.TryGetProperty("name", out var nameProp))
+            {
+                displayName = nameProp.GetString() ?? displayName;
+            }
+            await turnContext.SendActivityAsync($"**{displayName} said:** {turnContext.Activity.Text}", cancellationToken: cancellationToken);
+            return;
+        }
+
+        // Send to Logic Apps
+        var timestampHandler = new A2ATimestampRewriteHandler(_loggerFactory.CreateLogger<A2ATimestampRewriteHandler>())
         {
             InnerHandler = new HttpClientHandler()
-        });
+        };
+        var httpClient = new HttpClient(timestampHandler);
         httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         httpClient.DefaultRequestHeaders.Add("x-ms-obo-usertoken", "Bearer " + token);
-
-        /*
-        // Agent card (workflow scoped) - retained (body not currently used)
-        using HttpRequestMessage agentCardReq = new(HttpMethod.Get, $"{_agentUrl}/.well-known/agent-card.json");
-        HttpResponseMessage agentCardResp = await httpClient.SendAsync(agentCardReq, cancellationToken);
-        _ = await agentCardResp.Content.ReadAsStringAsync(cancellationToken);
-        */
 
         // RPC client works at service base (without workflow name)
         var rpc = new AgentContextRpcClient(httpClient, _serviceBaseUrl);
@@ -259,6 +274,7 @@ public class AuthAgent : AgentApplication
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "[AuthAgent] Error sending message to agent");
                 await turnContext.SendActivityAsync($"Error sending message to agent: {ex.GetType().Name}: {ex.Message} {ex.InnerException}", cancellationToken: cancellationToken);
                 return;
             }
@@ -285,6 +301,7 @@ public class AuthAgent : AgentApplication
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "[AuthAgent] Error polling task {TaskId}", initialTask.Id);
                 await turnContext.SendActivityAsync($"The agent encountered an error. Debugging information: task {initialTask.Id}: {ex.Message}", cancellationToken: cancellationToken);
                 return;
             }
@@ -311,6 +328,7 @@ public class AuthAgent : AgentApplication
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "[AuthAgent] Error in Logic Apps flow");
             await turnContext.SendActivityAsync($"Error sending message to agent: {ex.GetType().Name}: {ex.Message} {ex.InnerException} {ex.StackTrace}", cancellationToken: cancellationToken);
         }
     }
@@ -364,15 +382,41 @@ public class AuthAgent : AgentApplication
             || task.Status.State == TaskState.AuthRequired;
     }
 
+    /// <summary>
+    /// Calls the Okta /oauth2/default/v1/userinfo endpoint to get user information.
+    /// </summary>
+    private async Task<JsonElement?> GetOktaUserInfoAsync(string accessToken, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var httpClient = new HttpClient();
+            httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+            var response = await httpClient.GetAsync(OktaUserInfoUrl, cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                var content = await response.Content.ReadAsStringAsync(cancellationToken);
+                return JsonDocument.Parse(content).RootElement;
+            }
+
+            _logger.LogWarning("[AuthAgent] Okta userinfo call failed: {Status} - {Reason}",
+                response.StatusCode,
+                await response.Content.ReadAsStringAsync(cancellationToken));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[AuthAgent] Error calling Okta userinfo endpoint");
+        }
+
+        return null;
+    }
+
     private async Task OnUserSignInFailure(ITurnContext turnContext, ITurnState turnState, string handlerName, SignInResponse response, IActivity initiatingActivity, CancellationToken cancellationToken)
     {
-        _logger.LogError("[DIAG] ========== SIGN-IN FAILURE ==========");
-        _logger.LogError("[DIAG] Handler: {Handler}", handlerName);
-        _logger.LogError("[DIAG] Cause: {Cause}", response.Cause);
-        _logger.LogError("[DIAG] Error: {Error}", response.Error?.Message);
-        _logger.LogError("[DIAG] ChannelId: {ChannelId}", turnContext.Activity.ChannelId);
-        _logger.LogError("[DIAG] InitiatingActivity.Type: {Type}", initiatingActivity?.Type);
-        _logger.LogError("[DIAG] ===========================================");
+        _logger.LogError("[AuthAgent] Sign-in failure - Handler: {Handler}, Cause: {Cause}, Error: {Error}",
+            handlerName,
+            response.Cause,
+            response.Error?.Message);
         await turnContext.SendActivityAsync($"Sign In: Failed to login to '{handlerName}': {response.Cause}/{response.Error!.Message}", cancellationToken: cancellationToken);
     }
 

@@ -2,12 +2,12 @@
   "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.22/MicrosoftTeams.schema.json",
   "manifestVersion": "1.22",
   "version": "1.0.0",
-  "id": "387dc956-c1c1-4a04-92ae-bb8d8dbfe203",
+  "id": "f6d74d50-58e1-4959-9434-4a84841d8f89",
   "developer": {
     "name": "Microsoft, Inc.",
-    "websiteUrl": "https://example.azurewebsites.net",
-    "privacyUrl": "https://example.azurewebsites.net/privacy",
-    "termsOfUseUrl": "https://example.azurewebsites.net/termsofuse"
+    "websiteUrl": "https://la92zr4o-bot-app.azurewebsites.net",
+    "privacyUrl": "https://la92zr4o-bot-app.azurewebsites.net/privacy",
+    "termsOfUseUrl": "https://la92zr4o-bot-app.azurewebsites.net/termsofuse"
   },
   "icons": {
     "color": "color.png",
@@ -25,14 +25,14 @@
   "copilotAgents": {
     "customEngineAgents": [
       {
-        "id": "387dc956-c1c1-4a04-92ae-bb8d8dbfe203",
+        "id": "f6d74d50-58e1-4959-9434-4a84841d8f89",
         "type": "bot"
       }
     ]
   },
   "bots": [
     {
-      "botId": "387dc956-c1c1-4a04-92ae-bb8d8dbfe203",
+      "botId": "f6d74d50-58e1-4959-9434-4a84841d8f89",
       "scopes": [
         "personal",
         "copilot"

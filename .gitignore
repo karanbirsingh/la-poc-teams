@@ -1,0 +1,26 @@
+# Build outputs
+bin/
+obj/
+publish/
+
+# Deployment artifacts
+bot-deploy.zip
+teams-app.zip
+
+# Local configuration (contains secrets)
+appsettings.local.json
+config/deployment-output.json
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db

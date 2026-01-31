@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Okta OIDC Application Configuration for Azure Bot Service OAuth",
+  
+  "oktaDomain": "integrator-7620286.okta.com",
+  "authorizationServer": "default",
+  
+  "application": {
+    "name": "Teams Bot Okta OAuth",
+    "type": "Web Application",
+    "signInMethod": "OIDC - OpenID Connect",
+    "clientId": "0oazoxkr5qr5bSJFs697",
+    "clientSecret": "REDACTED_OKTA_SECRET",
+    
+    "grantTypes": [
+      "Authorization Code",
+      "Refresh Token"
+    ],
+    
+    "redirectUris": {
+      "signIn": [
+        "https://token.botframework.com/.auth/web/redirect"
+      ],
+      "signOut": []
+    },
+    
+    "assignments": {
+      "controlledAccess": "Allow everyone in your organization to access"
+    }
+  },
+  
+  "oauth2Endpoints": {
+    "authorizationUrl": "https://integrator-7620286.okta.com/oauth2/default/v1/authorize",
+    "tokenUrl": "https://integrator-7620286.okta.com/oauth2/default/v1/token",
+    "refreshUrl": "https://integrator-7620286.okta.com/oauth2/default/v1/token",
+    "userInfoUrl": "https://integrator-7620286.okta.com/oauth2/default/v1/userinfo",
+    "jwksUrl": "https://integrator-7620286.okta.com/oauth2/default/v1/keys",
+    "issuer": "https://integrator-7620286.okta.com/oauth2/default"
+  },
+  
+  "scopes": [
+    "openid",
+    "profile", 
+    "email"
+  ],
+  
+  "notes": {
+    "authorizationServerChoice": "Using 'default' custom authorization server. Alternative is Org authorization server (without /default in URL) but requires different userinfo endpoint.",
+    "redirectUri": "The Bot Framework token service redirect URI is required for Azure Bot Service OAuth flow.",
+    "clientSecret": "Store securely - this is shown for reference only."
+  }
+}

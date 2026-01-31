@@ -1,0 +1,96 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "triggers": {
+            "When_a_HTTP_request_is_received": {
+                "type": "Request",
+                "kind": "Http",
+                "inputs": {
+                    "method": "POST",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "message": {
+                                "type": "object",
+                                "properties": {
+                                    "role": { "type": "string" },
+                                    "parts": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "text": { "type": "string" }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "contextId": { "type": "string" }
+                        }
+                    }
+                },
+                "operationOptions": "EnableAgentMode"
+            }
+        },
+        "actions": {
+            "Parse_Request_Headers": {
+                "type": "Compose",
+                "inputs": {
+                    "authenticatedUser": "@{triggerOutputs()?['headers']?['x-ms-client-principal-name']}",
+                    "userToken": "@{triggerOutputs()?['headers']?['x-ms-obo-usertoken']}"
+                },
+                "runAfter": {}
+            },
+            "Parse_Message": {
+                "type": "Compose",
+                "inputs": "@{triggerBody()?['message']?['parts']?[0]?['text']}",
+                "runAfter": {
+                    "Parse_Request_Headers": ["Succeeded"]
+                }
+            },
+            "Generate_Response": {
+                "type": "Compose",
+                "inputs": {
+                    "role": "assistant",
+                    "parts": [
+                        {
+                            "text": "🤖 **Echo Bot Response**\n\nHello! I received your message via the A2A protocol.\n\n**Your message:** @{outputs('Parse_Message')}\n\n**Authenticated as:** @{outputs('Parse_Request_Headers')?['authenticatedUser']}\n\n_This response came from Azure Logic Apps with Okta Easy Auth!_"
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Parse_Message": ["Succeeded"]
+                }
+            },
+            "Response": {
+                "type": "Response",
+                "kind": "Http",
+                "inputs": {
+                    "statusCode": 200,
+                    "headers": {
+                        "Content-Type": "application/json"
+                    },
+                    "body": {
+                        "jsonrpc": "2.0",
+                        "id": "@{guid()}",
+                        "result": {
+                            "id": "@{guid()}",
+                            "contextId": "@{triggerBody()?['contextId']}",
+                            "status": {
+                                "state": "completed",
+                                "message": "@{outputs('Generate_Response')}"
+                            },
+                            "artifacts": []
+                        }
+                    }
+                },
+                "runAfter": {
+                    "Generate_Response": ["Succeeded"]
+                }
+            }
+        },
+        "outputs": {}
+    },
+    "kind": "Stateful"
+}
