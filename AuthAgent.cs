@@ -8,7 +8,9 @@ using Microsoft.Agents.Builder.App;
 using Microsoft.Agents.Builder.App.UserAuth;
 using Microsoft.Agents.Builder.State;
 using Microsoft.Agents.Builder.UserAuth;
+using Microsoft.Agents.Core;
 using Microsoft.Agents.Core.Models;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System;
 using System.Collections.Generic;
@@ -27,13 +29,19 @@ public class AuthAgent : AgentApplication
     private readonly string _workflowName;
     private readonly string _agentUrl;        // full workflow URL
     private readonly string _serviceBaseUrl;  // base without workflow segment
+    private readonly ILogger<AuthAgent> _logger;
 
-    public AuthAgent(AgentApplicationOptions options, IOptions<WorkflowOptions> workflowOptions) : base(options)
+    public AuthAgent(AgentApplicationOptions options, IOptions<WorkflowOptions> workflowOptions, ILogger<AuthAgent> logger) : base(options)
     {
+        _logger = logger;
         var wf = workflowOptions.Value;
         _agentUrl = wf.AgentUrl.TrimEnd('/');
         _workflowName = wf.WorkflowName;
         _serviceBaseUrl = wf.ServiceBaseUrl;
+
+        _logger.LogInformation("[DIAG] AuthAgent initialized. AutoSignIn={AutoSignIn}, DefaultHandler={Handler}",
+            options.UserAuthorization?.AutoSignIn?.ToString() ?? "(not set)",
+            options.UserAuthorization?.DefaultHandlerName ?? "(none)");
 
         OnConversationUpdate(ConversationUpdateEvents.MembersAdded, WelcomeMessageAsync);
 
@@ -66,13 +74,87 @@ public class AuthAgent : AgentApplication
 
     private async Task OnMessageAsync(ITurnContext turnContext, ITurnState turnState, CancellationToken cancellationToken)
     {
-        string token;
+        // ===== DIAGNOSTIC LOGGING FOR OAUTH DEBUGGING =====
+        var activity = turnContext.Activity;
+        _logger.LogWarning("[DIAG] ========== INCOMING MESSAGE ==========");
+        _logger.LogWarning("[DIAG] ChannelId (raw): {ChannelId}", activity.ChannelId);
+        _logger.LogWarning("[DIAG] ChannelId.Channel: {Channel}", activity.ChannelId?.Channel);
+        _logger.LogWarning("[DIAG] ChannelId.SubChannel: {SubChannel}", activity.ChannelId?.SubChannel);
+        _logger.LogWarning("[DIAG] ChannelId.IsSubChannel: {IsSubChannel}", activity.ChannelId?.IsSubChannel());
+        _logger.LogWarning("[DIAG] ChannelId.IsParentChannel(msteams): {IsParent}", activity.ChannelId?.IsParentChannel("msteams"));
+        _logger.LogWarning("[DIAG] Activity.Type: {Type}", activity.Type);
+        _logger.LogWarning("[DIAG] Activity.Text: {Text}", activity.Text);
+        _logger.LogWarning("[DIAG] Activity.DeliveryMode: {DeliveryMode}", activity.DeliveryMode);
+        _logger.LogWarning("[DIAG] Conversation.Id: {ConvId}", activity.Conversation?.Id);
+        _logger.LogWarning("[DIAG] Conversation.TenantId: {TenantId}", activity.Conversation?.TenantId);
+        _logger.LogWarning("[DIAG] Conversation.ConversationType: {ConvType}", activity.Conversation?.ConversationType);
+        _logger.LogWarning("[DIAG] ServiceUrl: {ServiceUrl}", activity.ServiceUrl);
+        _logger.LogWarning("[DIAG] From.Id: {FromId}", activity.From?.Id);
+        _logger.LogWarning("[DIAG] From.AadObjectId: {AadId}", activity.From?.AadObjectId);
+        // Note: AgenticUserId/AgenticAppId only available in v1.3.x+
+        _logger.LogWarning("[DIAG] Recipient.Id: {RecipientId}", activity.Recipient?.Id);
+        
+        // Note: IsAgenticRequest() is only available in v1.3.x+
+        // For v1.2.x, we check for ProductInfo entity manually
+        
+        // Check for ProductInfo entity (used by M365 Copilot)
         try
         {
-            token = await UserAuthorization.GetTurnTokenAsync(turnContext, UserAuthorization.DefaultHandlerName);
+            var productInfo = activity.GetProductInfoEntity();
+            _logger.LogWarning("[DIAG] ProductInfoEntity: {ProductInfo}", productInfo != null ? $"Id={productInfo.Id}, Type={productInfo.Type}" : "(none)");
+            // If ProductInfo with Id="COPILOT" exists, this is likely an M365 Copilot request
+            var isLikelyCopilot = productInfo?.Id?.Equals("COPILOT", StringComparison.OrdinalIgnoreCase) == true;
+            _logger.LogWarning("[DIAG] IsLikelyCopilotRequest (inferred): {IsLikelyCopilot}", isLikelyCopilot);
         }
         catch (Exception ex)
         {
+            _logger.LogWarning("[DIAG] ProductInfoEntity check failed: {Error}", ex.Message);
+        }
+        
+        // Check for Teams-specific channel data
+        if (activity.ChannelData != null)
+        {
+            try
+            {
+                var channelDataJson = System.Text.Json.JsonSerializer.Serialize(activity.ChannelData);
+                _logger.LogWarning("[DIAG] ChannelData (JSON): {ChannelData}", channelDataJson);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("[DIAG] ChannelData serialization failed: {Error}", ex.Message);
+            }
+        }
+        
+        // Check activity.Entities for mentions, clientInfo, etc.
+        if (activity.Entities != null && activity.Entities.Count > 0)
+        {
+            foreach (var entity in activity.Entities)
+            {
+                _logger.LogWarning("[DIAG] Entity Type: {EntityType}", entity.Type);
+                if (entity.Type == "clientInfo" || entity.Type == "ProductInfo")
+                {
+                    try
+                    {
+                        var entityJson = System.Text.Json.JsonSerializer.Serialize(entity);
+                        _logger.LogWarning("[DIAG] ClientInfo Entity: {Entity}", entityJson);
+                    }
+                    catch { }
+                }
+            }
+        }
+        _logger.LogWarning("[DIAG] ===========================================");
+        // ===== END DIAGNOSTIC LOGGING =====
+
+        string token;
+        try
+        {
+            _logger.LogWarning("[DIAG] Calling UserAuthorization.GetTurnTokenAsync with handler: {Handler}", UserAuthorization.DefaultHandlerName);
+            token = await UserAuthorization.GetTurnTokenAsync(turnContext, UserAuthorization.DefaultHandlerName);
+            _logger.LogWarning("[DIAG] Token retrieved successfully (length={Length})", token?.Length ?? 0);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[DIAG] GetTurnTokenAsync FAILED: {Message}", ex.Message);
             await turnContext.SendActivityAsync($"Could not get bearer token: {ex.Message}", cancellationToken: cancellationToken);
             return;
         }
@@ -284,6 +366,13 @@ public class AuthAgent : AgentApplication
 
     private async Task OnUserSignInFailure(ITurnContext turnContext, ITurnState turnState, string handlerName, SignInResponse response, IActivity initiatingActivity, CancellationToken cancellationToken)
     {
+        _logger.LogError("[DIAG] ========== SIGN-IN FAILURE ==========");
+        _logger.LogError("[DIAG] Handler: {Handler}", handlerName);
+        _logger.LogError("[DIAG] Cause: {Cause}", response.Cause);
+        _logger.LogError("[DIAG] Error: {Error}", response.Error?.Message);
+        _logger.LogError("[DIAG] ChannelId: {ChannelId}", turnContext.Activity.ChannelId);
+        _logger.LogError("[DIAG] InitiatingActivity.Type: {Type}", initiatingActivity?.Type);
+        _logger.LogError("[DIAG] ===========================================");
         await turnContext.SendActivityAsync($"Sign In: Failed to login to '{handlerName}': {response.Cause}/{response.Error!.Message}", cancellationToken: cancellationToken);
     }
 
