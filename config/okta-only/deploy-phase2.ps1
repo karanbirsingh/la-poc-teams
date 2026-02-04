@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-    Phase 3: Deploy bot to Azure App Service and create Teams app package.
+    Phase 2: Deploy bot to Azure App Service and create Teams app package.
     
 .DESCRIPTION
-    After Phase 1 (resources) and Phase 2 (Easy Auth), this script:
+    After Phase 1 (Okta + Bot resources), this script:
     1. Creates an Azure App Service for the bot
     2. Configures all app settings
     3. Publishes the .NET bot to Azure
@@ -11,11 +11,11 @@
     5. Creates a Teams app manifest zip for sideloading
     
 .EXAMPLE
-    .\deploy-phase3.ps1
+    .\deploy-phase2.ps1
     
 .EXAMPLE
     # Skip Teams package creation:
-    .\deploy-phase3.ps1 -SkipTeamsPackage
+    .\deploy-phase2.ps1 -SkipTeamsPackage
 #>
 
 param(
@@ -28,7 +28,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$projectRoot = Split-Path -Parent $scriptDir
+$projectRoot = Split-Path -Parent (Split-Path -Parent $scriptDir)
 
 # =============================================================================
 # Helper Functions
@@ -70,24 +70,18 @@ function Write-Err {
 }
 
 # =============================================================================
-# Load Phase 1/2 Output
+# Load Phase 1 Output
 # =============================================================================
 
-Write-Banner "Phase 3: Deploy to Azure App Service & Create Teams Package"
+Write-Banner "Phase 2: Deploy to Azure App Service & Create Teams Package"
 
 $outputPath = Join-Path $scriptDir "deployment-output.json"
 if (-not (Test-Path $outputPath)) {
-    Write-Err "deployment-output.json not found. Run deploy-phase1.ps1 and deploy-phase2.ps1 first."
+    Write-Err "deployment-output.json not found. Run deploy-phase1.ps1 first."
     exit 1
 }
 
 $deployment = Get-Content $outputPath | ConvertFrom-Json
-
-if ($deployment.phase -ne "phase2-complete" -and -not $Force) {
-    Write-Warn "Phase 2 not completed. Easy Auth may not be configured."
-    $confirm = Read-Host "Continue anyway? (y/n)"
-    if ($confirm -ne "y") { exit 0 }
-}
 
 Write-Step 1 "Loading deployment configuration"
 
@@ -101,9 +95,6 @@ $botName = $deployment.bot.name
 $botAppId = $deployment.bot.appId
 $botAppSecret = $deployment.bot.appSecret
 
-$logicAppName = $deployment.logicApp.name
-$agentUrl = $deployment.logicApp.agentUrl
-
 $oktaDomain = $deployment.okta.domain
 
 # Derived names
@@ -113,7 +104,6 @@ $botAspName = "$prefix-bot-asp"
 Write-Success "Loaded deployment for prefix: $prefix"
 Write-Info "Bot:          $botName"
 Write-Info "App Service:  $botAppServiceName"
-Write-Info "Agent URL:    $agentUrl"
 
 # =============================================================================
 # Step 2: Verify Azure CLI
@@ -210,14 +200,6 @@ az webapp config appsettings set `
         "Okta__AuthorizationServer=default" `
     --output none
 
-Write-Info "Setting workflow configuration..."
-az webapp config appsettings set `
-    --resource-group $resourceGroup `
-    --name $botAppServiceName `
-    --settings `
-        "Workflow__AgentUrl=$agentUrl" `
-    --output none
-
 Write-Info "Setting token validation..."
 az webapp config appsettings set `
     --resource-group $resourceGroup `
@@ -236,7 +218,7 @@ az webapp config appsettings set `
         "AgentApplication__UserAuthorization__DefaultHandlerName=auto" `
         "AgentApplication__UserAuthorization__AutoSignin=true" `
         "AgentApplication__UserAuthorization__Handlers__auto__Settings__AzureBotOAuthConnectionName=okta" `
-        "AgentApplication__UserAuthorization__Handlers__auto__Settings__Title=Sign in" `
+        "AgentApplication__UserAuthorization__Handlers__auto__Settings__Title=Sign in with Okta" `
         "AgentApplication__RemoveRecipientMention=false" `
     --output none
 
@@ -337,7 +319,6 @@ if (-not $SkipTeamsPackage) {
         New-Item -ItemType Directory -Path $appManifestDir | Out-Null
     }
     
-    # Create or update manifest.json
     Write-Info "Generating manifest.json..."
     $manifest = @{
         '$schema' = "https://developer.microsoft.com/json-schemas/teams/v1.22/MicrosoftTeams.schema.json"
@@ -345,7 +326,7 @@ if (-not $SkipTeamsPackage) {
         version = "1.0.0"
         id = $botAppId
         developer = @{
-            name = "Microsoft, Inc."
+            name = "Okta OAuth Demo"
             websiteUrl = $botAppServiceUrl
             privacyUrl = "$botAppServiceUrl/privacy"
             termsOfUseUrl = "$botAppServiceUrl/termsofuse"
@@ -356,11 +337,11 @@ if (-not $SkipTeamsPackage) {
         }
         name = @{
             short = "Okta OAuth Bot"
-            full = "Teams Bot with Okta OAuth"
+            full = "Teams Bot with Okta OAuth Demo"
         }
         description = @{
-            short = "Bot testing Okta OAuth"
-            full = "A Teams bot that uses Okta as the OAuth identity provider and connects to Logic App Agent workflows"
+            short = "Test Okta OAuth integration"
+            full = "A Teams bot that demonstrates Okta OAuth authentication. Returns your Okta profile info when you send a message."
         }
         accentColor = "#FFFFFF"
         copilotAgents = @{
@@ -397,9 +378,7 @@ if (-not $SkipTeamsPackage) {
     if (-not (Test-Path $colorIconPath) -or -not (Test-Path $outlineIconPath)) {
         Write-Warn "Icon files missing. Creating placeholder icons..."
         
-        # Create simple placeholder PNGs (32x32 colored squares)
-        # This is a minimal valid PNG
-        $colorPng = [Convert]::FromBase64String("iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAhUlEQVR4Ae3TsQ3AIAwF0NyRBRiF0bIKozAKo9BQRJGSeODu8C+g4IX/G0AQBEEQBEEQBEEQBE3w7i8Ah3s/c859zjn3uffe+xxjjDHGGOM65xxzzDHHPPfcc6+99tprr7332muvvfbaa6+99tprr7322muvvfbaa6+99tprr/8FABcAnp1nYGe/oAAAAABJRU5ErkJggg==")
+        $colorPng = [Convert]::FromBase64String("iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAhUlEQVR4Ae3TsQ3AIAwF0NyRBRiF0bIKozAKozAKo9BQRJGSeODu8C+g4IX/G0AQBEEQBEEQBEEQBE3w7i8Ah3s/c859zjn3uffe+xxjjDHGGOM65xxzzDHHPPfcc6+99tprr7332muvvfbaa6+99tprr7322muvvfbaa6+99tprr/8FABcAnp1nYGe/oAAAAABJRU5ErkJggg==")
         $outlinePng = [Convert]::FromBase64String("iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAfUlEQVR4Ae2TsQoAIQxD6///c3sIJ3RQweIiOIg2IfgAAQDAADCAASqlfwDoHoK7IyLuIuIuAAAAAMA/AJzzWGvNvfdea631rLWeZ611zjnXWmudc45zzrn3vvfaa6+19t577bXXXnvttdcGABgABhDAAAAAYIABBvgC8AY04XAhuMPfJQAAAABJRU5ErkJggg==")
         
         [System.IO.File]::WriteAllBytes($colorIconPath, $colorPng)
@@ -407,7 +386,6 @@ if (-not $SkipTeamsPackage) {
         Write-Success "Created placeholder icons"
     }
     
-    # Create zip
     Write-Info "Creating Teams app package..."
     if (Test-Path $teamsZipPath) { Remove-Item $teamsZipPath -Force }
     Compress-Archive -Path "$appManifestDir\*" -DestinationPath $teamsZipPath -Force
@@ -420,7 +398,7 @@ if (-not $SkipTeamsPackage) {
 
 Write-Step 9 "Saving deployment state"
 
-$deployment.phase = "phase3-complete"
+$deployment.phase = "phase2-complete"
 $deployment.timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
 $deployment | Add-Member -NotePropertyName "appService" -NotePropertyValue @{
     name = $botAppServiceName
@@ -436,7 +414,7 @@ Write-Success "Saved to deployment-output.json"
 # Summary
 # =============================================================================
 
-Write-Banner "Phase 3 Complete - Bot Deployed to Azure!"
+Write-Banner "Phase 2 Complete - Okta OAuth Bot Deployed!"
 
 Write-Host ""
 Write-Host "  Deployment:" -ForegroundColor White
@@ -450,7 +428,20 @@ if (-not $SkipTeamsPackage) {
     Write-Host ""
 }
 Write-Host "  ============================================================" -ForegroundColor Yellow
-Write-Host "  TO TEST IN TEAMS:" -ForegroundColor Yellow
+Write-Host "  WHAT THIS BOT DOES:" -ForegroundColor Yellow
+Write-Host "  ============================================================" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "  When you send a message, the bot will:" -ForegroundColor White
+Write-Host "    1. Prompt you to sign in with Okta (if not already signed in)" -ForegroundColor Gray
+Write-Host "    2. Get your Okta access token" -ForegroundColor Gray
+Write-Host "    3. Return your Okta profile info (name, email)" -ForegroundColor Gray
+Write-Host ""
+Write-Host "  Commands:" -ForegroundColor White
+Write-Host "    • -me       Show your full Okta profile" -ForegroundColor Gray
+Write-Host "    • -signout  Sign out of Okta" -ForegroundColor Gray
+Write-Host ""
+Write-Host "  ============================================================" -ForegroundColor Yellow
+Write-Host "  TEST IN TEAMS:" -ForegroundColor Yellow
 Write-Host "  ============================================================" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "  1. Open Microsoft Teams" -ForegroundColor White
@@ -462,7 +453,7 @@ Write-Host "     $teamsZipPath" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  4. Click 'Add' to install the bot" -ForegroundColor White
 Write-Host ""
-Write-Host "  5. Start chatting!" -ForegroundColor White
+Write-Host "  5. Send any message - you'll be prompted to sign in with Okta!" -ForegroundColor White
 Write-Host ""
 Write-Host "  ============================================================" -ForegroundColor Yellow
 Write-Host "  TEST IN WEB CHAT:" -ForegroundColor Yellow
@@ -470,3 +461,12 @@ Write-Host "  ============================================================" -For
 Write-Host ""
 Write-Host "  https://portal.azure.com/#resource/subscriptions/$subscriptionId/resourceGroups/$resourceGroup/providers/Microsoft.BotService/botServices/$botName/test" -ForegroundColor Cyan
 Write-Host ""
+Write-Host "  ============================================================" -ForegroundColor Yellow
+Write-Host "  NEXT STEP - ADD LOGIC APPS:" -ForegroundColor Yellow
+Write-Host "  ============================================================" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "  The Okta token obtained here can be passed to Logic Apps." -ForegroundColor White
+Write-Host "  See the full demo (deploy-scripts-reference branch) for" -ForegroundColor White
+Write-Host "  Logic Apps integration with Easy Auth." -ForegroundColor White
+Write-Host ""
+

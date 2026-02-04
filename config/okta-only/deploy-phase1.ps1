@@ -1,17 +1,15 @@
 <#
 .SYNOPSIS
-    Phase 1: Create Azure resources WITHOUT Easy Auth.
+    Phase 1: Create Azure Bot with Okta OAuth (NO Logic Apps).
     
 .DESCRIPTION
     Creates:
-    - Logic App Standard (without Easy Auth - so you can create workflows in portal)
-    - Azure Bot Service with Okta OAuth connection
+    - Azure Bot Service with Entra ID app registration
     - Okta OIDC application
+    - Bot OAuth connection to Okta
     
-    After this script completes:
-    1. Go to Logic App portal and create your Agent workflow with AI Foundry connection
-    2. Note the Agent URL from the workflow trigger
-    3. Run deploy-phase2.ps1 to enable Easy Auth
+    This is a minimal setup to test Okta OAuth in isolation.
+    The bot will return your Okta profile info when you message it.
     
 .EXAMPLE
     .\deploy-phase1.ps1
@@ -24,7 +22,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$projectRoot = Split-Path -Parent $scriptDir
+$projectRoot = Split-Path -Parent (Split-Path -Parent $scriptDir)
 
 # =============================================================================
 # Helper Functions
@@ -74,7 +72,7 @@ function New-RandomSuffix {
 # Load Configuration
 # =============================================================================
 
-Write-Banner "Phase 1: Create Azure Resources (No Easy Auth)"
+Write-Banner "Phase 1: Create Azure Bot + Okta OAuth (No Logic Apps)"
 
 $configPath = Join-Path $scriptDir $ConfigFile
 if (-not (Test-Path $configPath)) {
@@ -108,16 +106,13 @@ if (-not $prefix -and $existingDeployment) {
     $prefix = $existingDeployment.prefix
 }
 if (-not $prefix) {
-    $prefix = "la$(New-RandomSuffix)"
+    $prefix = "okta$(New-RandomSuffix)"
     Write-Info "Auto-generated resource prefix: $prefix"
 }
 
 # Resource names
 $botName = if ($config.resources.botName) { $config.resources.botName } else { "$prefix-bot" }
-$logicAppName = if ($config.resources.logicAppName) { $config.resources.logicAppName } else { "$prefix-la" }
-$storageName = "$($prefix)store" -replace "[^a-z0-9]", ""
-$appServicePlan = "$prefix-asp"
-$oktaAppName = "Teams Bot - $prefix"
+$oktaAppName = "Teams Bot (Okta Only) - $prefix"
 
 $oktaDomain = $config.okta.domain
 $oktaApiToken = $config.okta.apiToken
@@ -126,7 +121,6 @@ Write-Success "Configuration loaded"
 Write-Info "Prefix:          $prefix"
 Write-Info "Resource Group:  $resourceGroup"
 Write-Info "Bot Name:        $botName"
-Write-Info "Logic App:       $logicAppName"
 Write-Info "Location:        $location"
 
 # Initialize output state
@@ -144,11 +138,6 @@ $output = @{
         name       = $botName
         appId      = ""
         appSecret  = ""
-    }
-    logicApp  = @{
-        name     = $logicAppName
-        hostname = ""
-        url      = ""
     }
     okta      = @{
         domain       = $oktaDomain
@@ -200,13 +189,11 @@ if ($oktaApp) {
     Write-Info "Found existing Okta app: $($oktaApp.id)"
     $oktaClientId = $oktaApp.credentials.oauthClient.client_id
     
-    # Reuse secret from existing deployment if available
     if ($existingDeployment -and $existingDeployment.okta.clientSecret) {
         $oktaClientSecret = $existingDeployment.okta.clientSecret
         Write-Success "Reusing existing Okta client secret"
     }
     else {
-        # Create new secret
         $secrets = Invoke-RestMethod -Uri "https://$oktaDomain/api/v1/apps/$($oktaApp.id)/credentials/secrets" -Headers $oktaHeaders -Method GET
         $activeSecrets = $secrets | Where-Object { $_.status -eq "ACTIVE" }
         
@@ -251,10 +238,7 @@ else {
     $oktaClientId = $oktaApp.credentials.oauthClient.client_id
     $oktaClientSecret = $oktaApp.credentials.oauthClient.client_secret
     
-    # Activate the app
     Invoke-RestMethod -Uri "https://$oktaDomain/api/v1/apps/$($oktaApp.id)/lifecycle/activate" -Headers $oktaHeaders -Method POST | Out-Null
-    
-    # Re-fetch the app to get all fields (needed for later PUT update)
     $oktaApp = Invoke-RestMethod -Uri "https://$oktaDomain/api/v1/apps/$($oktaApp.id)" -Headers $oktaHeaders -Method GET
     
     # Assign Everyone group
@@ -269,7 +253,7 @@ else {
     Write-Success "Created Okta app: $oktaClientId"
 }
 
-# Update Okta authorization server audience to match client ID
+# Update Okta authorization server audience
 Write-Info "Updating Okta authorization server audience..."
 $authServerBody = @{
     name        = "default"
@@ -308,7 +292,6 @@ Write-Success "Resource group exists: $resourceGroup"
 
 Write-Step 5 "Creating Bot App Registration (Entra ID)"
 
-# Check if app exists
 $existingApp = az ad app list --display-name $botName --query "[0]" 2>$null | ConvertFrom-Json
 
 if ($existingApp) {
@@ -390,7 +373,7 @@ if ($channels -notcontains "msteams") {
 }
 
 # =============================================================================
-# Step 7: Create Bot OAuth Connection to Okta (using REST API - CLI has issues with Generic OAuth 2)
+# Step 7: Create Bot OAuth Connection to Okta
 # =============================================================================
 
 Write-Step 7 "Creating Bot OAuth Connection to Okta"
@@ -408,7 +391,6 @@ else {
     $oktaTokenUrl = "https://$oktaDomain/oauth2/default/v1/token"
     $oktaScopes = "openid profile email offline_access"
     
-    # Use REST API directly (az bot authsetting has issues with Generic OAuth 2)
     $oauthBody = @{
         location = "global"
         properties = @{
@@ -452,142 +434,11 @@ else {
 $output.bot.oauthConnection = $connectionName
 
 # =============================================================================
-# Step 8: Create Logic App Infrastructure (WITHOUT Easy Auth)
+# Step 8: Generate Local Configuration Files
 # =============================================================================
 
-Write-Step 8 "Creating Logic App Infrastructure"
+Write-Step 8 "Generating local configuration files"
 
-# Storage account
-$existingStorage = az storage account show --resource-group $resourceGroup --name $storageName 2>$null
-if (-not $existingStorage) {
-    Write-Info "Creating storage account: $storageName"
-    az storage account create `
-        --resource-group $resourceGroup `
-        --name $storageName `
-        --location $location `
-        --sku "Standard_LRS" `
-        --kind "StorageV2" `
-        --output none
-    
-    if ($LASTEXITCODE -ne 0) {
-        Write-Err "Failed to create storage account"
-        exit 1
-    }
-    Write-Success "Storage account created"
-}
-
-# App Service Plan
-$existingPlan = az appservice plan show --resource-group $resourceGroup --name $appServicePlan 2>$null
-if (-not $existingPlan) {
-    Write-Info "Creating App Service Plan: $appServicePlan"
-    az appservice plan create `
-        --resource-group $resourceGroup `
-        --name $appServicePlan `
-        --location $location `
-        --sku "WS1" `
-        --output none
-    
-    if ($LASTEXITCODE -ne 0) {
-        Write-Err "Failed to create App Service Plan"
-        exit 1
-    }
-    Write-Success "App Service Plan created"
-}
-
-# Logic App
-$existingLA = az logicapp show --resource-group $resourceGroup --name $logicAppName 2>$null
-if (-not $existingLA) {
-    Write-Info "Creating Logic App: $logicAppName"
-    az logicapp create `
-        --resource-group $resourceGroup `
-        --name $logicAppName `
-        --storage-account $storageName `
-        --plan $appServicePlan `
-        --output none
-    
-    if ($LASTEXITCODE -ne 0) {
-        Write-Err "Failed to create Logic App"
-        exit 1
-    }
-    Write-Success "Logic App created"
-}
-
-# Get Logic App hostname
-$laDetails = az logicapp show --resource-group $resourceGroup --name $logicAppName 2>$null | ConvertFrom-Json
-if (-not $laDetails -or -not $laDetails.defaultHostName) {
-    Write-Error "Failed to get Logic App details. Please check if the Logic App was created successfully."
-    exit 1
-}
-$laHostname = $laDetails.defaultHostName
-$laUrl = "https://$laHostname"
-Write-Info "Logic App URL: $laUrl"
-
-$output.logicApp.hostname = $laHostname
-$output.logicApp.url = $laUrl
-
-# Set OKTA_CLIENT_SECRET in Logic App settings (needed for Easy Auth later)
-Write-Info "Setting OKTA_CLIENT_SECRET in Logic App..."
-az logicapp config appsettings set `
-    --resource-group $resourceGroup `
-    --name $logicAppName `
-    --settings "OKTA_CLIENT_SECRET=$oktaClientSecret" `
-    --output none
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Warn "Could not set OKTA_CLIENT_SECRET (will be needed for Easy Auth)"
-} else {
-    Write-Success "OKTA_CLIENT_SECRET configured"
-}
-
-# =============================================================================
-# Step 9: Update Okta App with Logic App Redirect URI
-# =============================================================================
-
-Write-Step 9 "Updating Okta App with Logic App redirect URI"
-
-$laCallbackUrl = "https://$laHostname/.auth/login/okta1test/callback"
-
-$currentSettings = $oktaApp.settings.oauthClient
-$currentRedirects = @($currentSettings.redirect_uris)
-if ($currentRedirects -notcontains $laCallbackUrl) {
-    $currentRedirects += $laCallbackUrl
-}
-
-# Build oauthClient settings - preserve existing values, only update redirect_uris
-$oauthClientSettings = @{
-    redirect_uris   = $currentRedirects
-    response_types  = @("code")
-    grant_types     = @("authorization_code", "refresh_token")
-    application_type = "web"
-    consent_method  = "REQUIRED"
-    issuer_mode     = "ORG_URL"
-}
-# Only set client_uri if we have a valid URL
-if ($laUrl -and $laUrl -ne "https://") {
-    $oauthClientSettings.client_uri = $laUrl
-}
-
-$updateBody = @{
-    name       = $oktaApp.name
-    label      = $oktaApp.label
-    signOnMode = $oktaApp.signOnMode
-    visibility = $oktaApp.visibility
-    credentials = $oktaApp.credentials
-    settings = @{
-        oauthClient = $oauthClientSettings
-    }
-} | ConvertTo-Json -Depth 10
-
-Invoke-RestMethod -Uri "https://$oktaDomain/api/v1/apps/$($oktaApp.id)" -Headers $oktaHeaders -Method PUT -Body $updateBody -ContentType "application/json" | Out-Null
-Write-Success "Added redirect URI: $laCallbackUrl"
-
-# =============================================================================
-# Step 10: Generate Local Configuration Files
-# =============================================================================
-
-Write-Step 10 "Generating local configuration files"
-
-# Create appsettings.local.json
 $appSettings = @{
     Okta = @{
         Domain             = $oktaDomain
@@ -616,9 +467,7 @@ $appSettings = @{
             }
         }
     }
-    Workflow = @{
-        AgentUrl = "{{AGENT_URL_FROM_WORKFLOW}}"  # User fills this in after creating workflow
-    }
+    # No Workflow/AgentUrl - this is Okta-only mode
     AgentApplication = @{
         RemoveRecipientMention = $false
         UserAuthorization      = @{
@@ -626,8 +475,8 @@ $appSettings = @{
             Handlers           = @{
                 auto = @{
                     Settings = @{
-                        Title                      = "Sign in"
-                        Text                       = "Please sign in to chat with the bot."
+                        Title                      = "Sign in with Okta"
+                        Text                       = "Please sign in with your Okta account."
                         AzureBotOAuthConnectionName = "okta"
                     }
                 }
@@ -640,7 +489,6 @@ $appSettings = @{
             Default              = "Information"
             "Microsoft.Agents"   = "Debug"
             "Microsoft.AspNetCore" = "Warning"
-            "AutoSignIn.Infrastructure.A2ATimestampRewriteHandler" = "Debug"
         }
     }
 }
@@ -661,25 +509,33 @@ Write-Banner "Phase 1 Complete!"
 
 Write-Host ""
 Write-Host "  Resources created:" -ForegroundColor White
-Write-Host "    • Logic App:     $logicAppName (NO Easy Auth yet)" -ForegroundColor Gray
 Write-Host "    • Bot Service:   $botName" -ForegroundColor Gray
 Write-Host "    • Okta App:      $oktaAppName" -ForegroundColor Gray
+Write-Host "    • OAuth Conn:    $connectionName" -ForegroundColor Gray
 Write-Host ""
 Write-Host "  ============================================================" -ForegroundColor Yellow
-Write-Host "  NEXT STEPS:" -ForegroundColor Yellow
+Write-Host "  TEST LOCALLY:" -ForegroundColor Yellow
 Write-Host "  ============================================================" -ForegroundColor Yellow
 Write-Host ""
-Write-Host "  1. Open Logic App in Azure Portal:" -ForegroundColor White
-Write-Host "     https://portal.azure.com/#resource/subscriptions/$subscriptionId/resourceGroups/$resourceGroup/providers/Microsoft.Web/sites/$logicAppName/workflows" -ForegroundColor Cyan
+Write-Host "  1. Start the bot:" -ForegroundColor White
+Write-Host "     cd $projectRoot" -ForegroundColor Cyan
+Write-Host "     dotnet run" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "  2. Create a new Agent workflow with:" -ForegroundColor White
-Write-Host "     - Agent trigger (When a new chat session starts)" -ForegroundColor Gray
-Write-Host "     - Azure OpenAI / AI Foundry connection" -ForegroundColor Gray
-Write-Host "     - Your desired tools/actions" -ForegroundColor Gray
+Write-Host "  2. Start a dev tunnel (in another terminal):" -ForegroundColor White
+Write-Host "     devtunnel host -p 3978 --allow-anonymous" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "  3. Click on the trigger and copy the Agent URL" -ForegroundColor White
-Write-Host "     (It will look like: https://$laHostname/api/Agents/YourWorkflowName)" -ForegroundColor Gray
+Write-Host "  3. Update bot endpoint in Azure Portal:" -ForegroundColor White
+Write-Host "     https://portal.azure.com/#resource/subscriptions/$subscriptionId/resourceGroups/$resourceGroup/providers/Microsoft.BotService/botServices/$botName/configuration" -ForegroundColor Cyan
+Write-Host "     Set endpoint to: https://<your-tunnel>.devtunnels.ms/api/messages" -ForegroundColor Gray
 Write-Host ""
-Write-Host "  4. Run Phase 2 to enable Easy Auth:" -ForegroundColor White
-Write-Host "     .\deploy-phase2.ps1 -AgentUrl 'YOUR_AGENT_URL'" -ForegroundColor Green
+Write-Host "  4. Test in Web Chat:" -ForegroundColor White
+Write-Host "     https://portal.azure.com/#resource/subscriptions/$subscriptionId/resourceGroups/$resourceGroup/providers/Microsoft.BotService/botServices/$botName/test" -ForegroundColor Cyan
 Write-Host ""
+Write-Host "  ============================================================" -ForegroundColor Yellow
+Write-Host "  DEPLOY TO AZURE:" -ForegroundColor Yellow
+Write-Host "  ============================================================" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "  Run Phase 2 to deploy to Azure App Service:" -ForegroundColor White
+Write-Host "     .\deploy-phase2.ps1" -ForegroundColor Green
+Write-Host ""
+

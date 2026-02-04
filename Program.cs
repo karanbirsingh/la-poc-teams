@@ -1,7 +1,18 @@
 ﻿// Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-using AutoSignIn;
+// Okta OAuth Demo Bot
+// 
+// This bot demonstrates Okta OAuth authentication in isolation.
+// When you send a message, you'll be prompted to sign in with Okta,
+// and the bot will display your Okta profile information.
+//
+// To use:
+// 1. Run deploy-phase1.ps1 from config/okta-only/
+// 2. dotnet run
+// 3. Use devtunnel to expose locally, or run deploy-phase2.ps1 to deploy to Azure
+
+using OktaDemo;
 using Microsoft.Agents.Builder;
 using Microsoft.Agents.Hosting.AspNetCore;
 using Microsoft.Agents.Storage;
@@ -15,45 +26,37 @@ using System.Threading;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Load local settings (for dev tunnels, secrets, etc.)
+// Load local settings
 builder.Configuration
     .AddJsonFile("appsettings.local.json", optional: true, reloadOnChange: true);
 
-// Enable detailed logging for debugging
+// Logging
 builder.Logging.SetMinimumLevel(LogLevel.Information);
 builder.Logging.AddFilter("Microsoft.Agents", LogLevel.Debug);
-builder.Logging.AddFilter("AutoSignIn", LogLevel.Debug);
+builder.Logging.AddFilter("OktaDemo", LogLevel.Debug);
 
 builder.Services.AddHttpClient();
 
-// Register IStorage.  For development, MemoryStorage is suitable.
-// For production Agents, persisted storage should be used so
-// that state survives Agent restarts, and operates correctly
-// in a cluster of Agent instances.
+// Storage (in-memory for demo)
 builder.Services.AddSingleton<IStorage, MemoryStorage>();
 
-// Add AgentApplicationOptions from appsettings section "AgentApplication".
+// Agent configuration from appsettings
 builder.AddAgentApplicationOptions();
 
-// Add the AgentApplication, which contains the logic for responding to
-// user messages.
-builder.AddAgent<AuthAgent>();
-
-// Register WorkflowOptions for Logic Apps integration
-builder.Services.Configure<WorkflowOptions>(builder.Configuration.GetSection("Workflow"));
+// Register the Okta agent
+builder.AddAgent<OktaAgent>();
 
 builder.Services.AddControllers();
 builder.Services.AddAgentAspNetAuthentication(builder.Configuration);
 
 WebApplication app = builder.Build();
 
-// Enable AspNet authentication and authorization
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapGet("/", () => "Okta OAuth Demo Bot - Teams/WebChat");
+app.MapGet("/", () => "🔐 Okta OAuth Demo Bot - Ready! Send a message in Teams or Web Chat to test.");
 
-// This receives incoming messages from Azure Bot Service or other SDK Agents
+// Bot messaging endpoint
 var incomingRoute = app.MapPost("/api/messages", async (HttpRequest request, HttpResponse response, IAgentHttpAdapter adapter, IAgent agent, CancellationToken cancellationToken) =>
 {
     await adapter.ProcessAsync(request, response, agent, cancellationToken);
@@ -65,9 +68,10 @@ if (!app.Environment.IsDevelopment())
 }
 else
 {
-    // Hardcoded for brevity and ease of testing. 
-    // In production, this should be set in configuration.
-    app.Urls.Add($"http://localhost:3978");
+    app.Urls.Add("http://localhost:3978");
+}
+
+app.Run();
 }
 
 app.Run();

@@ -1,48 +1,105 @@
-# Overview
-This prototype was built on https://github.com/microsoft/Agents/tree/main/samples/dotnet/auto-signin. Teams integration leverages Azure Bot Service, which needs a messaging endpoint that implements the bot framework activity protocol. The code in this repository is an ASP.NET service that implements the protocol by proxying messages between Azure Bot Service and LA. Therefore this repository contains proxying business logic that will be simplified later.
+# Okta OAuth Demo Bot
 
-# Setup steps
+A Teams bot that demonstrates **Okta OAuth authentication** using Azure Bot Service's Generic OAuth 2 Provider.
 
-## Logic App
-Create a standard LA with an agent loop. Use the default easy auth settings that create an app registration on your behalf. You can change the identity (e.g. allow any identity) as needed.
-When the AAD app is created, ensure you add "https://token.botframework.com/.auth/web/redirect" to Web Redirect URIs.
+## What This Does
 
-## Azure Bot Service
-Create an Azure Bot resource in the portal. Allow it to create its AAD app for you. This app represents the bot identity. Note down BOT_CLIENT_ID, BOT_TENANT_ID, and create a BOT_SECRET for later.
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐
+│   Teams     │────▶│  Azure Bot   │────▶│    Okta     │
+│   User      │◀────│  + OAuth     │◀────│  (User SSO) │
+└─────────────┘     └──────────────┘     └─────────────┘
+```
 
-Create a new OAuth connection setting:
-- name: logicapp
-- service provider: Azure Active Directory v2
-- client id: the app ID created by LA Easy Auth setup
-- client secret: for accessing the app ID mentioned above (create a new secret)
-- token exchange URL: leave this blank
-- tenant id: tenant id of above client id
-- scopes: api://{{above client id}}/user_impersonation (you can copy this from the referenced AAD app "Expose an API" section which should be prefilled)
+When you message the bot:
+1. Bot prompts you to sign in with Okta
+2. You authenticate with your Okta credentials  
+3. Bot receives an Okta access token
+4. Bot calls Okta `/userinfo` endpoint and displays your profile
 
-Save the OAuth connection. Open it again and click "test". This should let you log in and if successful, will give you a token.
+## Bot Commands
 
-## Bot backend
-- Clone this repository.
-- Open appsettings.json and fill in BOT_CLIENT_ID, BOT_TENANT_ID, BOT_SECRET
-- Open the relevant LA workflow and click on the trigger. You should see an agent URL. Copy that into LOGICAPP_AGENT_URL
-- Now run the project.
-- Expose the local service using ngrok or devtunnel. For example: `.\devtunnel.exe host -p 3978 --allow-anonymous`
-- Note the URL exposed by devtunnels and append the suffix `\api\messages` to form the full messaging endpoint
-- Go to Azure Bot Service, configuration, and put in the full messaging endpoint there
+| Command | Description |
+|---------|-------------|
+| `-me` | Show your full Okta profile (name, email, sub) |
+| `-token` | Show token information |
+| `-signout` | Sign out and clear the OAuth token |
+| *any message* | Echo back with your Okta identity |
 
-Now you can "test in web chat" in Azure Bot Service - you should be able to interact with the agent. Ensure sign-in works and messages are flowing through
+## Quick Start
 
-## Expose in teams
-- Go to "channels" in the bot service and add Microsoft Teams. Default settings are OK.
-- Open `manifest.json` in this repository. Update all {{placeholders}}
-- Compress appManifest folder into a zip file
-- Open Teams > apps > manage apps > upload a custom app
-- Upload the zip file
-- It should allow you to open the app
-- You should then be able to chat with the app
+```powershell
+cd config/okta-only
 
-## Deploying
-- All messages are proxied through your local devtunnel for faster dev. This way you can change any business logic if needed.
-- But you may want this in the cloud instead. For this, you can follow publishing from VS Studio instructions (there is a wizard) as this is just a ASP.NET app.
-- Then ensure the messaging endpoint is changed in bot service to point to your web app.
-- App settings can be changed in the web app as well (e.g. to switch target workflows)
+# 1. Configure your Okta and Azure settings
+notepad deployment-config.json
+
+# 2. Create Azure Bot + Okta app
+.\deploy-phase1.ps1
+
+# 3. Deploy to Azure & create Teams package
+.\deploy-phase2.ps1
+```
+
+## Prerequisites
+
+- **Azure CLI** logged in (`az login`)
+- **Okta Admin** with API token access
+- **Azure Resource Group** (must exist)
+- **.NET 8 SDK**
+
+## Local Development
+
+After running `deploy-phase1.ps1`:
+
+```powershell
+# Terminal 1: Run the bot
+dotnet run
+
+# Terminal 2: Expose via dev tunnel
+devtunnel host -p 3978 --allow-anonymous
+```
+
+Then update the bot endpoint in Azure Portal to: `https://<tunnel>.devtunnels.ms/api/messages`
+
+## Project Structure
+
+```
+├── OktaAgent.cs              # Bot logic - Okta authentication
+├── Program.cs                # ASP.NET setup
+├── appsettings.json          # Config template
+├── config/okta-only/         # Deployment scripts
+│   ├── deploy-phase1.ps1     # Creates Bot + Okta resources
+│   ├── deploy-phase2.ps1     # Deploys to Azure + Teams package
+│   ├── deployment-config.json
+│   └── README.md
+└── appManifest/              # Teams app manifest
+```
+
+## Configuration
+
+The bot uses these settings (auto-generated by deploy scripts):
+
+| Setting | Description |
+|---------|-------------|
+| `Okta:Domain` | Your Okta org domain (e.g., `dev-123456.okta.com`) |
+| `Okta:ConnectionName` | Azure Bot OAuth connection name (`okta`) |
+| `TokenValidation:Audiences` | Bot App ID for token validation |
+| `AgentApplication:UserAuthorization` | OAuth handler configuration |
+
+## How It Works
+
+1. **Azure Bot Service** handles the OAuth flow using Generic OAuth 2 Provider
+2. Bot configures Okta as the identity provider with:
+   - Authorization URL: `https://{domain}/oauth2/default/v1/authorize`
+   - Token URL: `https://{domain}/oauth2/default/v1/token`
+   - Scopes: `openid profile email offline_access`
+3. When user sends a message, bot calls `UserAuthorization.GetTurnTokenAsync()` to get the Okta token
+4. Bot calls Okta's `/userinfo` endpoint to get user profile
+
+## Token Usage
+
+The Okta access token can be used for:
+- Calling Okta APIs
+- Passing to downstream services via headers (e.g., `Authorization: Bearer <token>`)
+- Validating user identity
