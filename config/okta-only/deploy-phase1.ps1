@@ -253,22 +253,6 @@ else {
     Write-Success "Created Okta app: $oktaClientId"
 }
 
-# Update Okta authorization server audience
-Write-Info "Updating Okta authorization server audience..."
-$authServerBody = @{
-    name        = "default"
-    description = "Default Authorization Server for your Applications"
-    audiences   = @($oktaClientId)
-    issuerMode  = "ORG_URL"
-} | ConvertTo-Json
-
-try {
-    Invoke-RestMethod -Uri "https://$oktaDomain/api/v1/authorizationServers/default" -Headers $oktaHeaders -Method PUT -Body $authServerBody | Out-Null
-    Write-Success "Updated authorization server audience to: $oktaClientId"
-} catch {
-    Write-Warn "Could not update authorization server audience (may need admin permissions)"
-}
-
 $output.okta.clientId = $oktaClientId
 $output.okta.clientSecret = $oktaClientSecret
 $output.okta.appId = $oktaApp.id
