@@ -3,15 +3,15 @@
 
   "okta": {
     "_comment": "Get API token from: Okta Admin > Security > API > Tokens > Create Token",
-    "domain": "integrator-7620286.okta.com",
-    "apiToken": "00utl2YSG9J1ODx70G3R1giojV8I0HeVVZyN71bzqX"
+    "domain": "YOUR_ORG.okta.com",
+    "apiToken": "YOUR_OKTA_API_TOKEN"
   },
 
   "azure": {
     "_comment": "subscriptionId optional (uses current az login). resourceGroup is REQUIRED.",
     "subscriptionId": "",
-    "resourceGroup": "karansin",
-    "location": "centralus"
+    "resourceGroup": "YOUR_RESOURCE_GROUP",
+    "location": "eastus"
   },
 
   "resources": {

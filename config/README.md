@@ -1,13 +1,48 @@
 # Deployment Scripts
 
-Three-phase deployment for Teams Bot + Okta OAuth + Logic Apps.
+Three-phase deployment for **Teams Bot + Okta OAuth + Logic App Agents**.
+
+This creates a complete end-to-end setup where:
+- Users chat with a Teams bot
+- Bot authenticates users via Okta OAuth
+- Bot connects to a Logic App Agent workflow (with AI Foundry/Azure OpenAI)
+- Logic App is secured with Easy Auth (Okta)
+
+## Architecture
+
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────────┐     ┌──────────────┐
+│   Teams     │────▶│  Azure Bot   │────▶│   Logic App     │────▶│  AI Foundry  │
+│   User      │◀────│  + Okta OAuth│◀────│  Agent Workflow │◀────│  / OpenAI    │
+└─────────────┘     └──────────────┘     └─────────────────┘     └──────────────┘
+                           │                      │
+                           │                      │
+                    ┌──────▼──────┐        ┌──────▼──────┐
+                    │    Okta     │        │  Easy Auth  │
+                    │  (User SSO) │        │   (Okta)    │
+                    └─────────────┘        └─────────────┘
+```
 
 ## Prerequisites
 
 1. **Azure CLI** logged in: `az login`
-2. **Okta Admin access** with an API token
+2. **Okta Admin access** with an API token (Security > API > Tokens)
 3. **Azure Resource Group** already created
-4. **.NET 8 SDK** installed (for Phase 3)
+4. **.NET 8 SDK** installed (for Phase 3 deployment)
+5. **Azure AI Foundry** or **Azure OpenAI** resource (for the Logic App workflow)
+
+## Quick Start
+
+```powershell
+# 1. Configure your settings
+notepad deployment-config.json
+
+# 2. Run the three phases
+.\deploy-phase1.ps1                    # Creates resources (no Easy Auth yet)
+# ... create your workflow in Azure Portal ...
+.\deploy-phase2.ps1 -AgentUrl "..."    # Enables Easy Auth
+.\deploy-phase3.ps1                    # Deploys bot & creates Teams package
+```
 
 ## Configuration
 
@@ -17,17 +52,23 @@ Edit `deployment-config.json`:
 {
   "okta": {
     "domain": "your-org.okta.com",
-    "apiToken": "your-api-token"
+    "apiToken": "your-okta-api-token"
   },
   "azure": {
-    "resourceGroup": "your-rg",
+    "resourceGroup": "your-existing-rg",
     "location": "eastus"
   },
   "resources": {
-    "prefix": ""  // Leave empty for auto-generated, or set a custom prefix
+    "prefix": ""  // Leave empty for auto-generated, or set like "mybot"
   }
 }
 ```
+
+### Getting an Okta API Token
+1. Go to Okta Admin Console
+2. **Security** > **API** > **Tokens**
+3. Click **Create Token**
+4. Copy the token (you won't see it again!)
 
 ## Phase 1: Create Resources
 
@@ -118,12 +159,20 @@ This removes all Azure resources and the Okta application.
 
 | File | Description |
 |------|-------------|
-| `deployment-config.json` | Your input configuration |
-| `deployment-output.json` | Generated credentials and URLs (keep secure!) |
+| `deployment-config.json` | Your input configuration (**edit this first**) |
+| `deployment-output.json` | Generated credentials and URLs (**auto-generated, keep secure!**) |
 | `deploy-phase1.ps1` | Creates resources without Easy Auth |
 | `deploy-phase2.ps1` | Enables Easy Auth after workflow is ready |
 | `deploy-phase3.ps1` | Deploys bot to Azure App Service + Teams package |
 | `cleanup.ps1` | Removes all created resources |
+| `azure-bot-config.json` | Reference template showing Azure Bot config structure |
+
+## Security Notes
+
+- **Never commit `deployment-output.json`** - it contains secrets
+- **Never commit `appsettings.local.json`** - it contains secrets
+- Both are in `.gitignore` by default
+- Rotate secrets if accidentally exposed
 
 ## Troubleshooting
 
