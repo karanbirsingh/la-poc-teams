@@ -1,53 +1,53 @@
 {
-  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.22/MicrosoftTeams.schema.json",
-  "copilotAgents": {
-    "customEngineAgents": [
-      {
-        "id": "277192d6-6958-477d-8ca4-01bc21d03209",
-        "type": "bot"
-      }
-    ]
-  },
-  "id": "277192d6-6958-477d-8ca4-01bc21d03209",
-  "validDomains": [
-    "token.botframework.com",
-    "*.devtunnels.ms",
-    "*.azurewebsites.net"
-  ],
-  "bots": [
-    {
-      "scopes": [
-        "personal",
-        "copilot"
-      ],
-      "isNotificationOnly": false,
-      "supportsFiles": false,
-      "botId": "277192d6-6958-477d-8ca4-01bc21d03209"
-    }
-  ],
-  "name": {
-    "short": "Okta OAuth Bot",
-    "full": "Teams Bot with Okta OAuth Demo"
-  },
-  "manifestVersion": "1.22",
-  "icons": {
-    "outline": "outline.png",
-    "color": "color.png"
-  },
   "developer": {
-    "termsOfUseUrl": "https://oktahyetdt-bot-app.azurewebsites.net/termsofuse",
-    "privacyUrl": "https://oktahyetdt-bot-app.azurewebsites.net/privacy",
-    "websiteUrl": "https://oktahyetdt-bot-app.azurewebsites.net",
-    "name": "Okta OAuth Demo"
+    "name": "Okta OAuth Demo",
+    "termsOfUseUrl": "https://oktanz55cz-bot-app.azurewebsites.net/termsofuse",
+    "websiteUrl": "https://oktanz55cz-bot-app.azurewebsites.net",
+    "privacyUrl": "https://oktanz55cz-bot-app.azurewebsites.net/privacy"
   },
   "permissions": [
     "identity",
     "messageTeamMembers"
   ],
-  "description": {
-    "short": "Test Okta OAuth integration",
-    "full": "A Teams bot that demonstrates Okta OAuth authentication. Returns your Okta profile info when you send a message."
-  },
+  "id": "29d52022-3762-432f-add0-29e26d433941",
   "accentColor": "#FFFFFF",
-  "version": "1.0.02041627"
+  "name": {
+    "full": "Teams Bot with Okta OAuth Demo",
+    "short": "Okta OAuth Bot"
+  },
+  "manifestVersion": "1.22",
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.22/MicrosoftTeams.schema.json",
+  "bots": [
+    {
+      "supportsFiles": false,
+      "scopes": [
+        "personal",
+        "copilot"
+      ],
+      "botId": "29d52022-3762-432f-add0-29e26d433941",
+      "isNotificationOnly": false
+    }
+  ],
+  "description": {
+    "full": "A Teams bot that demonstrates Okta OAuth authentication. Returns your Okta profile info when you send a message.",
+    "short": "Test Okta OAuth integration"
+  },
+  "icons": {
+    "outline": "outline.png",
+    "color": "color.png"
+  },
+  "copilotAgents": {
+    "customEngineAgents": [
+      {
+        "id": "29d52022-3762-432f-add0-29e26d433941",
+        "type": "bot"
+      }
+    ]
+  },
+  "version": "1.0.0",
+  "validDomains": [
+    "token.botframework.com",
+    "*.devtunnels.ms",
+    "*.azurewebsites.net"
+  ]
 }
