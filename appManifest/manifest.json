@@ -27,7 +27,7 @@
   ],
   "name": {
     "short": "Okta OAuth Bot",
-    "full": "Okta OAuth Demo Bot"
+    "full": "Teams Bot with Okta OAuth Demo"
   },
   "manifestVersion": "1.22",
   "icons": {
@@ -35,19 +35,19 @@
     "color": "color.png"
   },
   "developer": {
-    "termsOfUseUrl": "https://example.com/terms",
-    "privacyUrl": "https://example.com/privacy",
-    "websiteUrl": "https://example.com",
-    "name": "Okta Demo"
+    "termsOfUseUrl": "https://oktahyetdt-bot-app.azurewebsites.net/termsofuse",
+    "privacyUrl": "https://oktahyetdt-bot-app.azurewebsites.net/privacy",
+    "websiteUrl": "https://oktahyetdt-bot-app.azurewebsites.net",
+    "name": "Okta OAuth Demo"
   },
   "permissions": [
     "identity",
     "messageTeamMembers"
   ],
   "description": {
-    "short": "Test Okta OAuth authentication",
-    "full": "A demo bot that authenticates users with Okta and displays their profile information."
+    "short": "Test Okta OAuth integration",
+    "full": "A Teams bot that demonstrates Okta OAuth authentication. Returns your Okta profile info when you send a message."
   },
   "accentColor": "#FFFFFF",
-  "version": "1.0.0"
+  "version": "1.0.02041627"
 }

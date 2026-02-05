@@ -66,8 +66,11 @@ if (!app.Environment.IsDevelopment())
 {
     incomingRoute.RequireAuthorization();
 }
-
-app.Urls.Clear();
-app.Urls.Add("http://localhost:3978");
+else
+{
+    // Only set URL for local development - IIS manages URLs in production
+    app.Urls.Clear();
+    app.Urls.Add("http://localhost:3978");
+}
 
 app.Run();
