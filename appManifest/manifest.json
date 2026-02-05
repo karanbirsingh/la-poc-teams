@@ -1,53 +1,53 @@
 {
   "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.22/MicrosoftTeams.schema.json",
-  "manifestVersion": "1.22",
-  "version": "1.0.0",
-  "id": "f6d74d50-58e1-4959-9434-4a84841d8f89",
-  "developer": {
-    "name": "Microsoft, Inc.",
-    "websiteUrl": "https://la92zr4o-bot-app.azurewebsites.net",
-    "privacyUrl": "https://la92zr4o-bot-app.azurewebsites.net/privacy",
-    "termsOfUseUrl": "https://la92zr4o-bot-app.azurewebsites.net/termsofuse"
-  },
-  "icons": {
-    "color": "color.png",
-    "outline": "outline.png"
-  },
-  "name": {
-    "short": "Okta OAuth Bot",
-    "full": "Teams Bot with Okta OAuth"
-  },
-  "description": {
-    "short": "Bot testing Okta OAuth",
-    "full": "A Teams bot that uses Okta as the OAuth identity provider"
-  },
-  "accentColor": "#FFFFFF",
   "copilotAgents": {
     "customEngineAgents": [
       {
-        "id": "f6d74d50-58e1-4959-9434-4a84841d8f89",
+        "id": "277192d6-6958-477d-8ca4-01bc21d03209",
         "type": "bot"
       }
     ]
   },
-  "bots": [
-    {
-      "botId": "f6d74d50-58e1-4959-9434-4a84841d8f89",
-      "scopes": [
-        "personal",
-        "copilot"
-      ],
-      "supportsFiles": false,
-      "isNotificationOnly": false
-    }
-  ],
-  "permissions": [
-    "identity",
-    "messageTeamMembers"
-  ],
+  "id": "277192d6-6958-477d-8ca4-01bc21d03209",
   "validDomains": [
     "token.botframework.com",
     "*.devtunnels.ms",
     "*.azurewebsites.net"
-  ]
+  ],
+  "bots": [
+    {
+      "scopes": [
+        "personal",
+        "copilot"
+      ],
+      "isNotificationOnly": false,
+      "supportsFiles": false,
+      "botId": "277192d6-6958-477d-8ca4-01bc21d03209"
+    }
+  ],
+  "name": {
+    "short": "Okta OAuth Bot",
+    "full": "Okta OAuth Demo Bot"
+  },
+  "manifestVersion": "1.22",
+  "icons": {
+    "outline": "outline.png",
+    "color": "color.png"
+  },
+  "developer": {
+    "termsOfUseUrl": "https://example.com/terms",
+    "privacyUrl": "https://example.com/privacy",
+    "websiteUrl": "https://example.com",
+    "name": "Okta Demo"
+  },
+  "permissions": [
+    "identity",
+    "messageTeamMembers"
+  ],
+  "description": {
+    "short": "Test Okta OAuth authentication",
+    "full": "A demo bot that authenticates users with Okta and displays their profile information."
+  },
+  "accentColor": "#FFFFFF",
+  "version": "1.0.0"
 }

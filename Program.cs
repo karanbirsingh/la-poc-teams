@@ -66,12 +66,8 @@ if (!app.Environment.IsDevelopment())
 {
     incomingRoute.RequireAuthorization();
 }
-else
-{
-    app.Urls.Add("http://localhost:3978");
-}
 
-app.Run();
-}
+app.Urls.Clear();
+app.Urls.Add("http://localhost:3978");
 
 app.Run();

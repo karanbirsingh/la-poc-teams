@@ -486,6 +486,95 @@ $output | ConvertTo-Json -Depth 10 | Set-Content $outputPath -Encoding UTF8
 Write-Success "Saved deployment output to deployment-output.json"
 
 # =============================================================================
+# Create Teams App Package (for local testing)
+# =============================================================================
+
+Write-Step 7 "Creating Teams App Package"
+
+$appManifestDir = Join-Path $projectRoot "appManifest"
+$teamsZipPath = Join-Path $projectRoot "teams-app.zip"
+$manifestPath = Join-Path $appManifestDir "manifest.json"
+
+if (-not (Test-Path $appManifestDir)) {
+    Write-Info "Creating appManifest directory..."
+    New-Item -ItemType Directory -Path $appManifestDir | Out-Null
+}
+
+Write-Info "Generating manifest.json..."
+$manifest = @{
+    '$schema' = "https://developer.microsoft.com/json-schemas/teams/v1.22/MicrosoftTeams.schema.json"
+    manifestVersion = "1.22"
+    version = "1.0.0"
+    id = $botAppId
+    developer = @{
+        name = "Okta Demo"
+        websiteUrl = "https://example.com"
+        privacyUrl = "https://example.com/privacy"
+        termsOfUseUrl = "https://example.com/terms"
+    }
+    icons = @{
+        color = "color.png"
+        outline = "outline.png"
+    }
+    name = @{
+        short = "Okta OAuth Bot"
+        full = "Okta OAuth Demo Bot"
+    }
+    description = @{
+        short = "Test Okta OAuth authentication"
+        full = "A demo bot that authenticates users with Okta and displays their profile information."
+    }
+    accentColor = "#FFFFFF"
+    copilotAgents = @{
+        customEngineAgents = @(
+            @{
+                id = $botAppId
+                type = "bot"
+            }
+        )
+    }
+    bots = @(
+        @{
+            botId = $botAppId
+            scopes = @("personal", "copilot")
+            supportsFiles = $false
+            isNotificationOnly = $false
+        }
+    )
+    permissions = @("identity", "messageTeamMembers")
+    validDomains = @("token.botframework.com", "*.devtunnels.ms", "*.azurewebsites.net")
+}
+
+$manifest | ConvertTo-Json -Depth 10 | Set-Content $manifestPath -Encoding UTF8
+Write-Success "Generated manifest.json"
+
+# Create placeholder icons if they don't exist
+$colorIconPath = Join-Path $appManifestDir "color.png"
+$outlineIconPath = Join-Path $appManifestDir "outline.png"
+
+if (-not (Test-Path $colorIconPath)) {
+    Write-Info "Creating placeholder color.png (192x192)..."
+    # Minimal valid PNG - blue square
+    $colorPngBytes = [Convert]::FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAAAOElEQVR42u3BAQEAAACCIP+vbkhAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB8GXHmAAEjxyqKAAAAAElFTkSuQmCC")
+    [System.IO.File]::WriteAllBytes($colorIconPath, $colorPngBytes)
+}
+
+if (-not (Test-Path $outlineIconPath)) {
+    Write-Info "Creating placeholder outline.png (32x32)..."
+    # Minimal valid PNG - white square
+    $outlinePngBytes = [Convert]::FromBase64String("iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAFElEQVR42mP8/5+BgYGBgYGBkT4AABgXAf+keD0hAAAAAElFTkSuQmCC")
+    [System.IO.File]::WriteAllBytes($outlineIconPath, $outlinePngBytes)
+}
+
+# Create the Teams app zip
+Write-Info "Creating teams-app.zip..."
+if (Test-Path $teamsZipPath) {
+    Remove-Item $teamsZipPath -Force
+}
+Compress-Archive -Path "$appManifestDir\*" -DestinationPath $teamsZipPath -Force
+Write-Success "Created teams-app.zip"
+
+# =============================================================================
 # Summary
 # =============================================================================
 
@@ -496,9 +585,10 @@ Write-Host "  Resources created:" -ForegroundColor White
 Write-Host "    • Bot Service:   $botName" -ForegroundColor Gray
 Write-Host "    • Okta App:      $oktaAppName" -ForegroundColor Gray
 Write-Host "    • OAuth Conn:    $connectionName" -ForegroundColor Gray
+Write-Host "    • Teams App:     teams-app.zip" -ForegroundColor Gray
 Write-Host ""
 Write-Host "  ============================================================" -ForegroundColor Yellow
-Write-Host "  TEST LOCALLY:" -ForegroundColor Yellow
+Write-Host "  TEST LOCALLY WITH TEAMS:" -ForegroundColor Yellow
 Write-Host "  ============================================================" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "  1. Start the bot:" -ForegroundColor White
@@ -508,11 +598,14 @@ Write-Host ""
 Write-Host "  2. Start a dev tunnel (in another terminal):" -ForegroundColor White
 Write-Host "     devtunnel host -p 3978 --allow-anonymous" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "  3. Update bot endpoint in Azure Portal:" -ForegroundColor White
-Write-Host "     https://portal.azure.com/#resource/subscriptions/$subscriptionId/resourceGroups/$resourceGroup/providers/Microsoft.BotService/botServices/$botName/configuration" -ForegroundColor Cyan
-Write-Host "     Set endpoint to: https://<your-tunnel>.devtunnels.ms/api/messages" -ForegroundColor Gray
+Write-Host "  3. Update bot endpoint:" -ForegroundColor White
+Write-Host "     az bot update -g $resourceGroup -n $botName --endpoint `"https://<tunnel>.devtunnels.ms/api/messages`"" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "  4. Test in Web Chat:" -ForegroundColor White
+Write-Host "  4. Sideload Teams app:" -ForegroundColor White
+Write-Host "     Teams -> Apps -> Manage your apps -> Upload a custom app" -ForegroundColor Gray
+Write-Host "     Select: $teamsZipPath" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "  5. Test in Web Chat (no Teams needed):" -ForegroundColor White
 Write-Host "     https://portal.azure.com/#resource/subscriptions/$subscriptionId/resourceGroups/$resourceGroup/providers/Microsoft.BotService/botServices/$botName/test" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  ============================================================" -ForegroundColor Yellow

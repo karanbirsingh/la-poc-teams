@@ -32,10 +32,10 @@ When you message the bot:
 # 1. Configure
 notepad deployment-config.json
 
-# 2. Create resources (Bot + Okta app)
+# 2. Create resources (Bot + Okta app + Teams package)
 .\deploy-phase1.ps1
 
-# 3. Deploy to Azure & create Teams package
+# 3. Test locally (see below) OR deploy to Azure
 .\deploy-phase2.ps1
 ```
 
@@ -63,20 +63,37 @@ Edit `deployment-config.json`:
 | `-signout` | Sign out and clear the OAuth token |
 | *any message* | Echo back with your Okta name |
 
-## Testing Locally
+## Testing Locally with Teams
 
-After Phase 1:
+After running `deploy-phase1.ps1`:
 
 ```powershell
 # Terminal 1: Run the bot
-cd ..\..\
+cd ..\..
 dotnet run
 
 # Terminal 2: Start dev tunnel
 devtunnel host -p 3978 --allow-anonymous
 ```
 
-Then update the bot endpoint in Azure Portal to your tunnel URL + `/api/messages`.
+Then:
+
+1. **Update bot endpoint** (replace `<tunnel>` with your devtunnel subdomain):
+   ```powershell
+   az bot update -g <resource-group> -n <bot-name> --endpoint "https://<tunnel>.devtunnels.ms/api/messages"
+   ```
+
+2. **Sideload the Teams app**:
+   - Teams → Apps → Manage your apps → Upload a custom app
+   - Select `teams-app.zip` from the project root
+
+3. **Test**: Message the bot with `-me` to see your Okta profile
+
+## Testing with Web Chat (No Teams)
+
+You can also test directly in Azure Portal without Teams:
+1. Go to Azure Portal → Your Bot → Test in Web Chat
+2. Send `-me` to test OAuth
 
 ## Files
 
@@ -84,8 +101,8 @@ Then update the bot endpoint in Azure Portal to your tunnel URL + `/api/messages
 |------|-------------|
 | `deployment-config.json` | Your input config (**edit this**) |
 | `deployment-output.json` | Generated secrets (**auto-generated, keep secure**) |
-| `deploy-phase1.ps1` | Creates Bot + Okta resources |
-| `deploy-phase2.ps1` | Deploys to Azure + Teams package |
+| `deploy-phase1.ps1` | Creates Bot + Okta + Teams package |
+| `deploy-phase2.ps1` | Deploys to Azure App Service |
 
 ## Adding Logic Apps Later
 

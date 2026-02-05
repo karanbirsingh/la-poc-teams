@@ -2,7 +2,7 @@
   "_comment": "Fill in ONLY the required fields. Everything else is auto-generated.",
 
   "okta": {
-    "_comment": "Get API token from: Okta Admin > Security > API > Tokens > Create Token",
+    "_comment": "Get API token from: Okta Admin > Security > API > Tokens > Create Token. The domain is without -admin suffix",
     "domain": "YOUR_ORG.okta.com",
     "apiToken": "YOUR_OKTA_API_TOKEN"
   },

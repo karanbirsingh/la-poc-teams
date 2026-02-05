@@ -6,10 +6,14 @@ publish/
 # Deployment artifacts
 bot-deploy.zip
 teams-app.zip
+teams-okta-bot.zip
+appManifest/manifest.json
 
 # Local configuration (contains secrets)
 appsettings.local.json
 config/deployment-output.json
+config/okta-only/deployment-output.json
+**/deployment-output.json
 
 # IDE
 .vs/
